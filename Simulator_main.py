@@ -4,6 +4,7 @@ import math
 import time
 import cv2
 from random import randint
+from copy import deepcopy
 
 
 class Differential_wheel:
@@ -17,10 +18,11 @@ class Differential_wheel:
     global R
     global t
     global image
+    global pos
         
     def endProg(self):              # for testing
         cv2.destroyAllWindows()
-        sys.exit(0)
+        #sys.exit(0)
         
     def create_matrix(self,x,y=0):
         if y != 0:
@@ -43,11 +45,11 @@ class Differential_wheel:
 
     def mod_omega(self,vel1,vel2):
         w = vel2 - vel1
-        w = w / Differential_wheel.R
+        w = w / self.R
         return w
 
     def get_r(self,vel1,vel2):
-        rad = Differential_wheel.R*0.5*(vel1+vel2)
+        rad = self.R*0.5*(vel1+vel2)
         if vel1 == vel2:
             vel2 = 0.00001+vel1
         rad = rad / (vel2-vel1)
@@ -59,7 +61,7 @@ class Differential_wheel:
         return rx,ry
 
     def mod_left(self,matrix,omega):
-        t = Differential_wheel.t
+        t = self.t
         matrix[0][0] = math.cos(omega*t)
         matrix[0][1] = -1 * math.sin(omega*t)
         matrix[1][0] = math.sin(omega*t)
@@ -74,7 +76,7 @@ class Differential_wheel:
         return center
 
     def mod_right(self,right,ic,omega):
-        t = Differential_wheel.t
+        t = self.t
         right[0][0] = ic[0]
         right[1][0] = ic[1]
         right[2][0] = omega*t
@@ -85,16 +87,16 @@ class Differential_wheel:
 
     def plot_line(self,img,pos,mat):
         image = img
-        cv2.line(image,(int(pos[0]),Differential_wheel.sx-int(pos[1])),(int(mat[0]),Differential_wheel.sx-int(mat[1])),(255,255,255),2)
+        cv2.line(image,(int(pos[0]),self.sx-int(pos[1])),(int(mat[0]),self.sx-int(mat[1])),(255,255,255),2)
         cv2.imshow("image",image)
         cv2.waitKey(20)
         return image
-
+    
     def plot_direction(self,img,pos,degree):
         image = img
-        cv2.circle(image,(int(pos[0]),Differential_wheel.sx-int(pos[1])),8,(0,255,0),1)
+        cv2.circle(image,(int(pos[0]),self.sx-int(pos[1])),8,(0,255,0),1)
         xpos = int(int(pos[0]) + 8*math.cos(degree))
-        ypos = int(Differential_wheel.sx - int(pos[1]) - 8*math.sin(degree))
+        ypos = int(self.sx - int(pos[1]) - 8*math.sin(degree))
         cv2.circle(image,(xpos,ypos),2,(0,0,255),-1)    
         cv2.imshow("image",image)
         cv2.waitKey(20)
@@ -102,82 +104,143 @@ class Differential_wheel:
 
     def set_param(self,x,y,theta,radi,ti):
         global pos
-        Differential_wheel.pos[0] = x
-        Differential_wheel.pos[1] = y
-        Differential_wheel.v1 = 0.0
-        Differential_wheel.v2 = 0.0
-        Differential_wheel.R = radi
-        Differential_wheel.t = ti
-        Differential_wheel.theta = theta
+        self.pos[0] = x
+        self.pos[1] = y
+        self.v1 = 0.0
+        self.v2 = 0.0
+        self.R = radi
+        self.t = ti
+        self.theta = theta
 
     def saveImage(self,var):
         var += "Image.jpg"
-        cv2.imwrite(var,Differential_wheel.image)
+        print cv2.imwrite(var,self.image)
         print "Saved image : ",var
 
     def addNoise(self,l_nois,r_nois):
-        Differential_wheel.noise = True
-        Differential_wheel.ln = int(l_nois)
-        Differential_wheel.rn = int(r_nois)
+        self.noise = True
+        self.ln = int(l_nois)
+        self.rn = int(r_nois)
+		
+    def hideImage(self):
+        self.show = False
 
+    def draw_circle(self,event,x,y,flags,param):
+        if event == cv2.EVENT_LBUTTONDBLCLK:
+            self.temp_image = cv2.circle(self.temp_image,(x,y),1,(255,0,0),-1)
+            height = self.temp_image.shape[0]
+            self.points_obstacles.append([x,y])
+        if event == cv2.EVENT_MOUSEMOVE:
+            self.mouse_move_x = x
+            self.mouse_move_y = y
+
+    def callback(self,number = 2):
+        cv2.setMouseCallback(self.name,self.draw_circle)
+        while True:
+            cv2.imshow(self.name, self.img)
+            if len(self.point) >= number:
+                break
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
+        cv2.destroyWindow(self.name)
+        return self.point
+
+    def addObstacle(self):
+        self.temp_image = deepcopy(self.image)
+        new_obstacle = True
+        self.points_obstacles = []
+        
+
+        cv2.namedWindow("Add Obstacles")
+        cv2.setMouseCallback("Add Obstacles",self.draw_circle)
+        while True:
+            cv2.imshow("Add Obstacles", self.temp_image)
+            
+            if new_obstacle:
+                self.points_obstacles = []
+                new_obstacle = False
+            
+            plot_pts = np.array(self.points_obstacles, np.int32)
+            cv2.polylines(self.temp_image,[plot_pts.reshape((-1,1,2))],True,(255,0,0),2)
+
+            if len(self.points_obstacles) > 1:
+                cv2.fillPoly(self.temp_image,[plot_pts.reshape((-1,1,2))],(255,0,0))
+                
+            ch = cv2.waitKey(30)
+            if ch == ord('n') or ch == ord('N'):
+                self.image = deepcopy(self.temp_image)
+                new_obstacle = True
+
+            if ch == ord('r') or ch == ord('R'):
+                self.temp_image = deepcopy(self.image)
+                new_obstacle = True
+                
+            if ch & 0xFF == 27:
+                break
+        cv2.destroyWindow("Add Obstacles")
+        cv2.imshow("Final Map", self.image)
+        cv2.waitKey(0)
+        print "Done"
+    	
     def request_kinectics(self,vl,vr):
         
         while True:
             
-            time.sleep(Differential_wheel.t)
+            time.sleep(0)#self.t)
 
-            if Differential_wheel.noise == True:
-                v2 = vr + (Differential_wheel.rn - randint(0,Differential_wheel.rn))
-                v1 = vl + (Differential_wheel.ln - randint(0,Differential_wheel.ln))
+            if self.noise == True:
+                v2 = vr + (self.rn - randint(0,self.rn))
+                v1 = vl + (self.ln - randint(0,self.ln))
             else:
                 v2 = vr
                 v1 = vl
             #print "v1_v2 : ",v1,v2
 
             if v1 == v2:
-                Differential_wheel.mat[0] = Differential_wheel.pos[0] + v1*math.cos(Differential_wheel.theta)*Differential_wheel.t
-                Differential_wheel.mat[1] = Differential_wheel.pos[1] + v1*math.sin(Differential_wheel.theta)*Differential_wheel.t
+                self.mat[0] = self.pos[0] + v1*math.cos(self.theta)*self.t
+                self.mat[1] = self.pos[1] + v1*math.sin(self.theta)*self.t
 
-                if Differential_wheel.show == True:
-                    Differential_wheel.image = self.plot_line(Differential_wheel.image,Differential_wheel.pos,Differential_wheel.mat)
-                    self.plot_direction(Differential_wheel.image,Differential_wheel.mat,Differential_wheel.theta)
+                if self.show == True:
+                    self.image = self.plot_line(self.image,self.pos,self.mat)
+                    self.plot_direction(self.image,self.mat,self.theta)
                 
-                Differential_wheel.pos[0] = Differential_wheel.mat[0]
-                Differential_wheel.pos[1] = Differential_wheel.mat[1]
-                print Differential_wheel.pos,self.rad_deg(Differential_wheel.theta)
+                self.pos[0] = self.mat[0]
+                self.pos[1] = self.mat[1]
+                #print self.pos,self.rad_deg(self.theta)
                     
             elif v1 == -1*v2:
-                Differential_wheel.theta = Differential_wheel.theta + (2*v2*Differential_wheel.t)/Differential_wheel.R
-                print Differential_wheel.pos,self.rad_deg(Differential_wheel.theta)
+                self.theta = self.theta + (2*v2*self.t)/self.R
+                #print self.pos,self.rad_deg(self.theta)
 
             else:
-                Differential_wheel.v1 = v1
-                Differential_wheel.v2 = v2
+                self.v1 = v1
+                self.v2 = v2
                     
-                Differential_wheel.omega = self.mod_omega(v1,v2)
-                Differential_wheel.icc[0],Differential_wheel.icc[1] = self.ICC(Differential_wheel.pos[0],Differential_wheel.pos[1],Differential_wheel.v1,Differential_wheel.v2,Differential_wheel.theta)
+                self.omega = self.mod_omega(v1,v2)
+                self.icc[0],self.icc[1] = self.ICC(self.pos[0],self.pos[1],self.v1,self.v2,self.theta)
 
                 
-                Differential_wheel.left = self.mod_left(Differential_wheel.left,Differential_wheel.omega)
-                Differential_wheel.cen = self.mod_cen(Differential_wheel.cen,Differential_wheel.pos,Differential_wheel.icc,Differential_wheel.theta)
-                Differential_wheel.right = self.mod_right(Differential_wheel.right,Differential_wheel.icc,Differential_wheel.omega)
+                self.left = self.mod_left(self.left,self.omega)
+                self.cen = self.mod_cen(self.cen,self.pos,self.icc,self.theta)
+                self.right = self.mod_right(self.right,self.icc,self.omega)
 
-                Differential_wheel.mat = self.add_matrix(self.mult_matrix(Differential_wheel.left,Differential_wheel.cen),Differential_wheel.right)
+                self.mat = self.add_matrix(self.mult_matrix(self.left,self.cen),self.right)
 
-                Differential_wheel.theta = Differential_wheel.mat[2]
+                self.theta = self.mat[2]
                 
-                if Differential_wheel.show == True:
-                    Differential_wheel.image = self.plot_line(Differential_wheel.image,Differential_wheel.pos,Differential_wheel.mat)
-                    self.plot_direction(Differential_wheel.image,Differential_wheel.mat,Differential_wheel.theta)
+                if self.show == True:
+                    self.image = self.plot_line(self.image,self.pos,self.mat)
+                    self.plot_direction(self.image,self.mat,self.theta)
                 
-                Differential_wheel.pos[0] = Differential_wheel.mat[0]
-                Differential_wheel.pos[1] = Differential_wheel.mat[1]
+                self.pos[0] = self.mat[0]
+                self.pos[1] = self.mat[1]
 
-                print Differential_wheel.pos,self.rad_deg(Differential_wheel.theta)
+                #print self.pos,self.rad_deg(self.theta)
             
             
             break
-        return Differential_wheel.pos[0],Differential_wheel.pos[1],Differential_wheel.theta
+        return self.pos[0],self.pos[1],self.theta
+
     
     def __del__(self):
         class_name = self.__class__.__name__
@@ -186,22 +249,22 @@ class Differential_wheel:
     
     def __init__(self,wx,wy,x,y,theta,radi,ti):
         
-        Differential_wheel.show = True
-        Differential_wheel.noise = False
-        Differential_wheel.pos = self.create_matrix(2)
-        Differential_wheel.mat = self.create_matrix(2)
-        Differential_wheel.icc = self.create_matrix(2)
+        self.show = True
+        self.noise = False
+        self.pos = self.create_matrix(2)
+        self.mat = self.create_matrix(2)
+        self.icc = self.create_matrix(2)
 
-        Differential_wheel.sx = wx
-        Differential_wheel.sy = wy
-        Differential_wheel.left = self.create_matrix(3,3)
-        Differential_wheel.cen = self.create_matrix(3,1)
-        Differential_wheel.right = self.create_matrix(3,1)
+        self.sx = wx
+        self.sy = wy
+        self.left = self.create_matrix(3,3)
+        self.cen = self.create_matrix(3,1)
+        self.right = self.create_matrix(3,1)
     
         self.set_param(x,y,theta,radi,ti)
-        Differential_wheel.omega = self.mod_omega(0,0)
-        Differential_wheel.image = np.zeros((Differential_wheel.sx,Differential_wheel.sy,3),dtype=np.uint8)
+        self.omega = self.mod_omega(0,0)
+        self.image = np.zeros((self.sx,self.sy,3),dtype=np.uint8)
 
-        Differential_wheel.icc[0],Differential_wheel.icc[1] = self.ICC(Differential_wheel.pos[0],Differential_wheel.pos[1],Differential_wheel.v1,Differential_wheel.v2,Differential_wheel.theta)        
+        self.icc[0],self.icc[1] = self.ICC(self.pos[0],self.pos[1],self.v1,self.v2,self.theta)        
 
 
